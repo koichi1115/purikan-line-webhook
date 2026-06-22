@@ -2,8 +2,6 @@ const crypto = require('crypto');
 
 const APP_SCHEME = 'otayori-ai';
 
-// --- LINE API helpers ---
-
 async function replyMessage(replyToken, messages) {
   const res = await fetch('https://api.line.me/v2/bot/message/reply', {
     method: 'POST',
@@ -17,17 +15,8 @@ async function replyMessage(replyToken, messages) {
     const errText = await res.text();
     console.error('Reply failed:', res.status, errText);
   }
+  return res.ok;
 }
-
-function verifySignature(body, signature) {
-  const hash = crypto
-    .createHmac('SHA256', process.env.LINE_CHANNEL_SECRET)
-    .update(body)
-    .digest('base64');
-  return hash === signature;
-}
-
-// --- Messages ---
 
 function buildLinkMessage(userId) {
   const deepLink = `${APP_SCHEME}://link-line?id=${userId}`;
@@ -45,10 +34,7 @@ function buildLinkMessage(userId) {
   ];
 }
 
-// --- Vercel Serverless Function ---
-
 module.exports = async function handler(req, res) {
-  // Health check
   if (req.method === 'GET') {
     return res.status(200).json({
       status: 'ok',
@@ -62,55 +48,42 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    // Read raw body (bodyParser is disabled)
-    const chunks = [];
-    for await (const chunk of req) chunks.push(chunk);
-    const rawBody = Buffer.concat(chunks).toString('utf-8');
+    const body = req.body;
 
-    // Verify signature
-    const signature = req.headers['x-line-signature'];
-    if (!signature || !verifySignature(rawBody, signature)) {
-      return res.status(403).send('Invalid signature');
-    }
-
-    const parsed = JSON.parse(rawBody);
-
-    // Process events
-    for (const event of parsed.events || []) {
+    for (const event of body.events || []) {
       if (event.type === 'follow') {
         const userId = event.source.userId;
         const deepLink = `${APP_SCHEME}://link-line?id=${userId}`;
         await replyMessage(event.replyToken, [
-          { type: 'text', text: 'ぷりかん！公式アカウントへようこそ 🎉\nプリントの解析結果をLINEでお届けします。' },
+          { type: 'text', text: 'ぷりかん！へようこそ 🎉\nアプリと連携して通知を受け取りましょう。' },
           {
             type: 'template',
-            altText: 'ぷりかん！とLINEを連携します',
+            altText: '連携リンク',
             template: {
               type: 'buttons',
               title: 'LINE連携',
-              text: 'まずはアプリと連携しましょう！下のボタンをタップしてください。',
+              text: 'ボタンをタップしてアプリと連携',
               actions: [{ type: 'uri', label: '連携する', uri: deepLink }],
             },
           },
         ]);
-      } else if (event.type === 'message' && event.message.type === 'text') {
+      } else if (event.type === 'message') {
         const userId = event.source.userId;
-        if (event.message.text.includes('連携')) {
+        const text = event.message?.text || '';
+
+        if (text.includes('連携')) {
           await replyMessage(event.replyToken, buildLinkMessage(userId));
         } else {
           await replyMessage(event.replyToken, [
-            { type: 'text', text: '「連携」と送信すると、ぷりかん！アプリとの連携リンクをお送りします。' },
+            { type: 'text', text: '「連携」と送ると、アプリとの連携リンクをお送りします。' },
           ]);
         }
       }
     }
 
-    return res.status(200).json({});
+    return res.status(200).json({ ok: true });
   } catch (e) {
-    console.error('Webhook error:', e.message);
+    console.error('Error:', e);
     return res.status(500).json({ error: e.message });
   }
 };
-
-// Must be set AFTER module.exports assignment
-module.exports.config = { api: { bodyParser: false } };
