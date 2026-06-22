@@ -14,7 +14,8 @@ async function replyMessage(replyToken, messages) {
     body: JSON.stringify({ replyToken, messages }),
   });
   if (!res.ok) {
-    console.error('Reply failed:', res.status, await res.text());
+    const errText = await res.text();
+    console.error('Reply failed:', res.status, errText);
   }
 }
 
@@ -44,83 +45,72 @@ function buildLinkMessage(userId) {
   ];
 }
 
-function buildWelcomeMessage(userId) {
-  const deepLink = `${APP_SCHEME}://link-line?id=${userId}`;
-  return [
-    {
-      type: 'text',
-      text: 'ぷりかん！公式アカウントへようこそ 🎉\nプリントの解析結果をLINEでお届けします。',
-    },
-    {
-      type: 'template',
-      altText: 'ぷりかん！とLINEを連携します',
-      template: {
-        type: 'buttons',
-        title: 'LINE連携',
-        text: 'まずはアプリと連携しましょう！下のボタンをタップしてください。',
-        actions: [{ type: 'uri', label: '連携する', uri: deepLink }],
-      },
-    },
-  ];
-}
-
-// --- Event handling ---
-
-async function handleEvent(event) {
-  if (event.type === 'follow') {
-    await replyMessage(event.replyToken, buildWelcomeMessage(event.source.userId));
-    return;
-  }
-
-  if (event.type === 'message' && event.message.type === 'text') {
-    const userId = event.source.userId;
-    const text = event.message.text.trim();
-
-    if (text.includes('連携')) {
-      await replyMessage(event.replyToken, buildLinkMessage(userId));
-      return;
-    }
-
-    await replyMessage(event.replyToken, [
-      { type: 'text', text: '「連携」と送信すると、ぷりかん！アプリとの連携リンクをお送りします。' },
-    ]);
-  }
-}
-
 // --- Vercel Serverless Function ---
 
-async function handler(req, res) {
+module.exports = async function handler(req, res) {
+  // Health check
   if (req.method === 'GET') {
-    return res.status(200).send('OK');
+    return res.status(200).json({
+      status: 'ok',
+      hasToken: !!process.env.LINE_CHANNEL_ACCESS_TOKEN,
+      hasSecret: !!process.env.LINE_CHANNEL_SECRET,
+    });
   }
 
   if (req.method !== 'POST') {
     return res.status(405).send('Method Not Allowed');
   }
 
-  // Read raw body for signature verification
-  const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
-  const rawBody = Buffer.concat(chunks).toString('utf-8');
+  try {
+    // Read raw body (bodyParser is disabled)
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const rawBody = Buffer.concat(chunks).toString('utf-8');
 
-  const signature = req.headers['x-line-signature'];
-  if (!signature || !verifySignature(rawBody, signature)) {
-    return res.status(403).send('Invalid signature');
-  }
-
-  const parsed = JSON.parse(rawBody);
-
-  // Process events BEFORE responding (Vercel kills the function after res.end)
-  for (const event of parsed.events || []) {
-    try {
-      await handleEvent(event);
-    } catch (e) {
-      console.error('Event handling error:', e);
+    // Verify signature
+    const signature = req.headers['x-line-signature'];
+    if (!signature || !verifySignature(rawBody, signature)) {
+      return res.status(403).send('Invalid signature');
     }
+
+    const parsed = JSON.parse(rawBody);
+
+    // Process events
+    for (const event of parsed.events || []) {
+      if (event.type === 'follow') {
+        const userId = event.source.userId;
+        const deepLink = `${APP_SCHEME}://link-line?id=${userId}`;
+        await replyMessage(event.replyToken, [
+          { type: 'text', text: 'ぷりかん！公式アカウントへようこそ 🎉\nプリントの解析結果をLINEでお届けします。' },
+          {
+            type: 'template',
+            altText: 'ぷりかん！とLINEを連携します',
+            template: {
+              type: 'buttons',
+              title: 'LINE連携',
+              text: 'まずはアプリと連携しましょう！下のボタンをタップしてください。',
+              actions: [{ type: 'uri', label: '連携する', uri: deepLink }],
+            },
+          },
+        ]);
+      } else if (event.type === 'message' && event.message.type === 'text') {
+        const userId = event.source.userId;
+        if (event.message.text.includes('連携')) {
+          await replyMessage(event.replyToken, buildLinkMessage(userId));
+        } else {
+          await replyMessage(event.replyToken, [
+            { type: 'text', text: '「連携」と送信すると、ぷりかん！アプリとの連携リンクをお送りします。' },
+          ]);
+        }
+      }
+    }
+
+    return res.status(200).json({});
+  } catch (e) {
+    console.error('Webhook error:', e.message);
+    return res.status(500).json({ error: e.message });
   }
+};
 
-  return res.status(200).json({});
-}
-
-module.exports = handler;
+// Must be set AFTER module.exports assignment
 module.exports.config = { api: { bodyParser: false } };
