@@ -1,4 +1,4 @@
-const APP_SCHEME = 'otayori-ai';
+const BASE_URL = 'https://purikan-line-webhook.vercel.app';
 
 // Simple in-memory log (last 20 entries, resets on cold start)
 const logs = [];
@@ -25,7 +25,7 @@ async function replyMessage(replyToken, messages) {
 }
 
 function buildLinkMessage(userId) {
-  const deepLink = `${APP_SCHEME}://link-line?id=${userId}`;
+  const linkUrl = `${BASE_URL}/api/link?id=${userId}`;
   return [
     {
       type: 'template',
@@ -34,7 +34,7 @@ function buildLinkMessage(userId) {
         type: 'buttons',
         title: 'ぷりかん！LINE連携',
         text: '下のボタンをタップすると、ぷりかん！アプリとLINE通知が連携されます。',
-        actions: [{ type: 'uri', label: '連携する', uri: deepLink }],
+        actions: [{ type: 'uri', label: '連携する', uri: linkUrl }],
       },
     },
   ];
@@ -73,9 +73,19 @@ module.exports = async function handler(req, res) {
 
       if (event.type === 'follow') {
         const userId = event.source.userId;
-        const deepLink = `${APP_SCHEME}://link-line?id=${userId}`;
+        const linkUrl = `${BASE_URL}/api/link?id=${userId}`;
         await replyMessage(event.replyToken, [
-          { type: 'text', text: 'ぷりかん！へようこそ 🎉' },
+          { type: 'text', text: 'ぷりかん！へようこそ 🎉\nアプリと連携して通知を受け取りましょう。' },
+          {
+            type: 'template',
+            altText: '連携リンク',
+            template: {
+              type: 'buttons',
+              title: 'LINE連携',
+              text: 'ボタンをタップしてアプリと連携',
+              actions: [{ type: 'uri', label: '連携する', uri: linkUrl }],
+            },
+          },
         ]);
       } else if (event.type === 'message') {
         const userId = event.source.userId;
