@@ -87,12 +87,9 @@ async function handleEvent(event) {
   }
 }
 
-// Disable Vercel's automatic body parsing to get raw body for signature verification
-module.exports.config = { api: { bodyParser: false } };
-
 // --- Vercel Serverless Function ---
 
-module.exports = async function handler(req, res) {
+async function handler(req, res) {
   if (req.method === 'GET') {
     return res.status(200).send('OK');
   }
@@ -113,10 +110,7 @@ module.exports = async function handler(req, res) {
 
   const parsed = JSON.parse(rawBody);
 
-  // Respond 200 immediately
-  res.status(200).json({});
-
-  // Process events
+  // Process events BEFORE responding (Vercel kills the function after res.end)
   for (const event of parsed.events || []) {
     try {
       await handleEvent(event);
@@ -124,4 +118,9 @@ module.exports = async function handler(req, res) {
       console.error('Event handling error:', e);
     }
   }
-};
+
+  return res.status(200).json({});
+}
+
+module.exports = handler;
+module.exports.config = { api: { bodyParser: false } };
