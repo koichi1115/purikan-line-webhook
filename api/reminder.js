@@ -46,7 +46,7 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const { lineUserId, title, dueDate, targetPerson, type, daysBefore } = req.body;
+    const { lineUserId, title, dueDate, targetPerson, type, daysBefore, documentTitle, driveFileId } = req.body;
 
     if (!lineUserId || !dueDate || !title) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -66,6 +66,8 @@ module.exports = async function handler(req, res) {
       type,
       daysBefore: daysBefore || 1,
       reminderDate: reminderDateStr,
+      documentTitle: documentTitle || null,
+      driveFileId: driveFileId || null,
       createdAt: new Date().toISOString(),
     };
 

@@ -73,21 +73,37 @@ module.exports = async function handler(req, res) {
     for (const [userId, { items }] of Object.entries(byUser)) {
       let message = '⏰ リマインダー\n';
 
-      const todos = items.filter(i => i.type === 'todo');
-      const itemList = items.filter(i => i.type === 'item');
-
-      if (todos.length > 0) {
-        message += '\n✔️ TODO:';
-        todos.forEach(t => {
-          message += `\n  - 【${t.targetPerson}】${t.title} (期限: ${t.dueDate})`;
-        });
+      // Group by document
+      const byDoc = {};
+      for (const item of items) {
+        const docKey = item.documentTitle || '(資料名なし)';
+        if (!byDoc[docKey]) byDoc[docKey] = { driveFileId: item.driveFileId, items: [] };
+        byDoc[docKey].items.push(item);
       }
 
-      if (itemList.length > 0) {
-        message += '\n\n🎒 持ち物:';
-        itemList.forEach(i => {
-          message += `\n  - 【${i.targetPerson}】${i.title} (期限: ${i.dueDate})`;
-        });
+      for (const [docTitle, { driveFileId, items: docItems }] of Object.entries(byDoc)) {
+        message += `\n📄 ${docTitle}`;
+        if (driveFileId) {
+          message += `\n📎 https://drive.google.com/open?id=${driveFileId}`;
+        }
+
+        const todos = docItems.filter(i => i.type === 'todo');
+        const itemList = docItems.filter(i => i.type === 'item');
+
+        if (todos.length > 0) {
+          message += '\n\n✔️ TODO:';
+          todos.forEach(t => {
+            message += `\n  - 【${t.targetPerson}】${t.title} (期限: ${t.dueDate})`;
+          });
+        }
+
+        if (itemList.length > 0) {
+          message += '\n\n🎒 持ち物:';
+          itemList.forEach(i => {
+            message += `\n  - 【${i.targetPerson}】${i.title} (期限: ${i.dueDate})`;
+          });
+        }
+        message += '\n';
       }
 
       const ok = await sendLinePush(token, userId, message);
