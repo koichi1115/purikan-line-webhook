@@ -61,7 +61,7 @@ module.exports = async function handler(req, res) {
       if (!data) continue;
       const reminder = JSON.parse(data);
       const userId = reminder.lineUserId;
-      if (!byUser[userId]) byUser[userId] = { token: reminder.channelAccessToken, items: [] };
+      if (!byUser[userId]) byUser[userId] = { items: [] };
       byUser[userId].items.push(reminder);
       // Delete the reminder after reading
       await redisCommand('DEL', [key]);
@@ -69,7 +69,8 @@ module.exports = async function handler(req, res) {
 
     // Send grouped notifications
     let sent = 0;
-    for (const [userId, { token, items }] of Object.entries(byUser)) {
+    const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    for (const [userId, { items }] of Object.entries(byUser)) {
       let message = '⏰ リマインダー\n';
 
       const todos = items.filter(i => i.type === 'todo');

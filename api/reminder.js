@@ -46,7 +46,7 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const { lineUserId, channelAccessToken, title, dueDate, targetPerson, type, daysBefore } = req.body;
+    const { lineUserId, title, dueDate, targetPerson, type, daysBefore } = req.body;
 
     if (!lineUserId || !dueDate || !title) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -60,7 +60,6 @@ module.exports = async function handler(req, res) {
 
     const reminder = {
       lineUserId,
-      channelAccessToken,
       title,
       dueDate,
       targetPerson,
