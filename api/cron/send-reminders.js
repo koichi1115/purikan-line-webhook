@@ -46,8 +46,12 @@ module.exports = async function handler(req, res) {
 
     console.log(`Checking reminders for ${today}`);
 
-    // Find all reminders for today
-    const keys = await redisCommand('KEYS', [`reminder:${today}:*`]);
+    // Find all reminders for today and any past dates (catch missed ones)
+    const allKeys = await redisCommand('KEYS', ['reminder:*']);
+    const keys = (allKeys || []).filter(k => {
+      const date = k.split(':')[1];
+      return date && date <= today;
+    });
 
     if (!keys || keys.length === 0) {
       console.log('No reminders for today');

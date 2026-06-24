@@ -52,11 +52,11 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Calculate reminder date
+    // Calculate reminder date in JST
     const due = new Date(dueDate + 'T00:00:00+09:00');
-    const reminderDate = new Date(due);
-    reminderDate.setDate(reminderDate.getDate() - (daysBefore || 1));
-    const reminderDateStr = reminderDate.toISOString().split('T')[0];
+    const reminderMs = due.getTime() - (daysBefore || 1) * 86400000;
+    const reminderJst = new Date(reminderMs + 9 * 60 * 60 * 1000);
+    const reminderDateStr = reminderJst.toISOString().split('T')[0];
 
     const reminder = {
       lineUserId,
