@@ -41,6 +41,20 @@ module.exports = async function handler(req, res) {
     }
   }
 
+  // DELETE: cancel a reminder by key
+  if (req.method === 'DELETE') {
+    try {
+      const { key } = req.body || {};
+      if (!key || !key.startsWith('reminder:')) {
+        return res.status(400).json({ error: 'Missing or invalid key' });
+      }
+      await redisCommand('DEL', [key]);
+      return res.status(200).json({ ok: true, deleted: key });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
   if (req.method !== 'POST') {
     return res.status(405).send('Method Not Allowed');
   }
@@ -77,7 +91,7 @@ module.exports = async function handler(req, res) {
     const ttl = Math.max(Math.floor((due.getTime() - Date.now()) / 1000) + 86400, 86400);
     await redisCommand('SET', [key, JSON.stringify(reminder), 'EX', String(ttl)]);
 
-    return res.status(200).json({ ok: true, reminderDate: reminderDateStr });
+    return res.status(200).json({ ok: true, reminderDate: reminderDateStr, key });
   } catch (e) {
     console.error('Reminder error:', e);
     return res.status(500).json({ error: e.message });
