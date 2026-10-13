@@ -25,7 +25,7 @@ function makeHandler(secret = SECRET) {
   return { handler, replies, redis };
 }
 
-const raw = JSON.stringify({ events: [{ type: 'message', replyToken: 'rt', source: { userId: USER }, message: { type: 'text', text: '連携' } }] });
+const raw = JSON.stringify({ events: [{ type: 'message', replyToken: 'rt', source: { type: 'user', userId: USER }, message: { type: 'text', text: '連携' } }] });
 
 test('webhook: 署名なし POST は 401 で返信しない', async () => {
   const { handler, replies } = makeHandler();
@@ -66,7 +66,7 @@ test('webhook: 正しい署名で処理し、連携リンクに端末トーク�
 
 test('webhook: 不正な userId のイベントにはトークンを発行しない', async () => {
   const { handler, replies } = makeHandler();
-  const bad = JSON.stringify({ events: [{ type: 'follow', replyToken: 'rt', source: { userId: '<script>' } }] });
+  const bad = JSON.stringify({ events: [{ type: 'follow', replyToken: 'rt', source: { type: 'user', userId: '<script>' } }] });
   const res = createRes();
   await handler(createReq({ method: 'POST', rawBody: bad, headers: { 'x-line-signature': sign(bad) } }), res);
   assert.equal(res.statusCode, 200);

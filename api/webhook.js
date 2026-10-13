@@ -9,11 +9,20 @@ const { issueUserToken } = require('../lib/user-auth');
 const { isLineUserId } = require('../lib/ids');
 const { buildLinkUrl } = require('../lib/link-page');
 
+const MAX_BODY_BYTES = 1024 * 1024;
+
 function linkTemplate(linkUrl, altText, title, text) {
   return { type: 'template', altText, template: { type: 'buttons', title, text, actions: [{ type: 'uri', label: '連携する', uri: linkUrl }] } };
 }
 
+const GROUP_NOTICE = [{ type: 'text', text: '連携は、ぷりかん！公式アカウントとの1対1のトークで「連携」と送ってください。' }];
+
 async function messagesFor(event, redis) {
+  // Never issue a token where others can see the reply (group / room).
+  if (!event.source || event.source.type !== 'user') {
+    const text = (event.message && event.message.text) || '';
+    return event.type === 'message' && text.includes('連携') ? GROUP_NOTICE : null;
+  }
   const userId = event.source && event.source.userId;
   const text = (event.message && event.message.text) || '';
   if (event.type === 'message' && !text.includes('連携')) {
@@ -36,7 +45,13 @@ function createHandler({ redis = createRedis(), reply = replyMessage, getSecret 
     if (req.method === 'GET') return res.status(200).json({ status: 'ok' });
     if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
 
-    const raw = await readRawBody(req);
+    let raw;
+    try {
+      raw = await readRawBody(req, MAX_BODY_BYTES);
+    } catch (e) {
+      if (e.code === 'BODY_TOO_LARGE') return res.status(413).json({ error: 'payload_too_large' });
+      throw e;
+    }
     if (!verifyLineSignature(raw, req.headers['x-line-signature'], getSecret())) {
       return res.status(401).json({ error: 'invalid_signature' });
     }
