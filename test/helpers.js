@@ -32,14 +32,22 @@ function createReq({ method = 'GET', headers = {}, query = {}, body, rawBody } =
 function createFakeRedis() {
   const store = new Map();
   const calls = [];
+  const ttls = new Map();
   async function command(cmd, args = []) {
     calls.push([cmd, ...args]);
     switch (cmd) {
       case 'GET': return store.has(args[0]) ? store.get(args[0]) : null;
-      case 'SET': store.set(args[0], args[1]); return 'OK';
+      case 'SET': {
+        const opts = args.slice(2).map(String);
+        if (opts.includes('NX') && store.has(args[0])) return null;
+        store.set(args[0], args[1]);
+        const ex = opts.indexOf('EX');
+        if (ex >= 0) ttls.set(args[0], Number(opts[ex + 1])); else ttls.delete(args[0]);
+        return 'OK';
+      }
       case 'DEL': { const had = store.delete(args[0]); return had ? 1 : 0; }
       case 'INCR': { const n = Number(store.get(args[0]) || 0) + 1; store.set(args[0], String(n)); return n; }
-      case 'EXPIRE': return 1;
+      case 'EXPIRE': ttls.set(args[0], Number(args[1])); return 1;
       case 'KEYS': {
         const prefix = args[0].replace(/\*$/, '');
         return [...store.keys()].filter((k) => k.startsWith(prefix));
@@ -47,7 +55,7 @@ function createFakeRedis() {
       default: throw new Error(`unsupported ${cmd}`);
     }
   }
-  return { command, store, calls };
+  return { command, store, calls, ttls };
 }
 
 module.exports = { createReq, createRes, createFakeRedis };

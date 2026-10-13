@@ -79,3 +79,29 @@ test('verifyLineSignature: 定数時間比較で長さ違いも false', () => {
   assert.equal(verifyLineSignature(raw, sign(raw, 'other'), SECRET), false);
   assert.equal(verifyLineSignature(raw, undefined, SECRET), false);
 });
+
+for (const sourceType of ['group', 'room']) {
+  for (const ev of [
+    { type: 'follow' },
+    { type: 'message', message: { type: 'text', text: '連携' } },
+  ]) {
+    test(`webhook: source.type=${sourceType} の ${ev.type} ではトークンを発行せず返信に t= を含めない`, async () => {
+      const { handler, replies, redis } = makeHandler();
+      const body = JSON.stringify({ events: [{ ...ev, replyToken: 'rt', source: { type: sourceType, userId: USER, groupId: 'C' + 'f'.repeat(32), roomId: 'R' + 'f'.repeat(32) } }] });
+      const res = createRes();
+      await handler(createReq({ method: 'POST', rawBody: body, headers: { 'x-line-signature': sign(body) } }), res);
+      assert.equal(res.statusCode, 200);
+      assert.ok(!JSON.stringify(replies).includes('t='), 'reply must not contain token');
+      assert.ok(![...redis.store.keys()].some((k) => k.startsWith('authtoken:') || k.startsWith('usertoken:')), 'no token issued');
+    });
+  }
+}
+
+test('webhook: 上限を超える body は 413 で処理しない', async () => {
+  const { handler, replies } = makeHandler();
+  const big = JSON.stringify({ events: [], pad: 'x'.repeat(1024 * 1024 + 1) });
+  const res = createRes();
+  await handler(createReq({ method: 'POST', rawBody: big, headers: { 'x-line-signature': sign(big) } }), res);
+  assert.equal(res.statusCode, 413);
+  assert.equal(replies.length, 0);
+});
