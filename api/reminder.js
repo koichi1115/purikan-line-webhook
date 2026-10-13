@@ -1,99 +1,44 @@
 /**
- * POST /api/reminder - Register a reminder
- * GET /api/reminder - List all reminders (debug)
+ * POST /api/reminder - Register a reminder for the authenticated LINE user.
  *
- * Uses Upstash Redis REST API for storage.
- * Environment variables: UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN
+ * Auth: Authorization: Bearer <per-user token issued via the LINE link flow>.
+ * The LINE userId is derived from the token; any lineUserId in the body is ignored.
+ * GET (list all) and DELETE (delete any key) were removed (A2B hardening).
  */
+const { createRedis } = require('../lib/redis');
+const { authenticateUser, bearerToken } = require('../lib/user-auth');
+const { hitRateLimit, clientIp } = require('../lib/rate-limit');
+const { validateReminder } = require('../lib/reminder-validate');
+const { saveReminder } = require('../lib/reminder-store');
 
-async function redisCommand(command, args = []) {
-  const url = process.env.KV_REST_API_URL;
-  const token = process.env.KV_REST_API_TOKEN;
-  if (!url || !token) throw new Error('Redis not configured');
+const IP_LIMIT = { limit: 30, windowSec: 60 };
+const USER_LIMIT = { limit: 100, windowSec: 86400 };
 
-  const res = await fetch(`${url}`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify([command, ...args]),
-  });
-
-  if (!res.ok) throw new Error(`Redis error: ${res.status}`);
-  const data = await res.json();
-  return data.result;
+function createHandler({ redis = createRedis() } = {}) {
+  return async function handler(req, res) {
+    if (req.method !== 'POST') {
+      res.setHeader('Allow', 'POST');
+      return res.status(405).json({ error: 'method_not_allowed' });
+    }
+    try {
+      if (!(await hitRateLimit(redis, `ip:${clientIp(req)}`, IP_LIMIT.limit, IP_LIMIT.windowSec))) {
+        return res.status(429).json({ error: 'rate_limited' });
+      }
+      const userId = await authenticateUser(redis, bearerToken(req));
+      if (!userId) return res.status(401).json({ error: 'unauthorized' });
+      if (!(await hitRateLimit(redis, `user:${userId}`, USER_LIMIT.limit, USER_LIMIT.windowSec))) {
+        return res.status(429).json({ error: 'rate_limited' });
+      }
+      const input = validateReminder(req.body);
+      if (!input.ok) return res.status(400).json({ error: 'invalid_input', field: input.field });
+      const saved = await saveReminder(redis, userId, input.value);
+      return res.status(200).json({ ok: true, ...saved });
+    } catch (e) {
+      console.error('Reminder error');
+      return res.status(500).json({ error: 'internal_error' });
+    }
+  };
 }
 
-module.exports = async function handler(req, res) {
-  // Debug: list all reminders
-  if (req.method === 'GET') {
-    try {
-      const keys = await redisCommand('KEYS', ['reminder:*']);
-      const reminders = [];
-      for (const key of keys || []) {
-        const data = await redisCommand('GET', [key]);
-        if (data) reminders.push(JSON.parse(data));
-      }
-      return res.status(200).json({ count: reminders.length, reminders });
-    } catch (e) {
-      return res.status(500).json({ error: e.message });
-    }
-  }
-
-  // DELETE: cancel a reminder by key
-  if (req.method === 'DELETE') {
-    try {
-      const { key } = req.body || {};
-      if (!key || !key.startsWith('reminder:')) {
-        return res.status(400).json({ error: 'Missing or invalid key' });
-      }
-      await redisCommand('DEL', [key]);
-      return res.status(200).json({ ok: true, deleted: key });
-    } catch (e) {
-      return res.status(500).json({ error: e.message });
-    }
-  }
-
-  if (req.method !== 'POST') {
-    return res.status(405).send('Method Not Allowed');
-  }
-
-  try {
-    const { lineUserId, title, dueDate, targetPerson, type, daysBefore, documentTitle, driveFileId } = req.body;
-
-    if (!lineUserId || !dueDate || !title) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
-
-    // Calculate reminder date in JST
-    const due = new Date(dueDate + 'T00:00:00+09:00');
-    const reminderMs = due.getTime() - (daysBefore || 1) * 86400000;
-    const reminderJst = new Date(reminderMs + 9 * 60 * 60 * 1000);
-    const reminderDateStr = reminderJst.toISOString().split('T')[0];
-
-    const reminder = {
-      lineUserId,
-      title,
-      dueDate,
-      targetPerson,
-      type,
-      daysBefore: daysBefore || 1,
-      reminderDate: reminderDateStr,
-      documentTitle: documentTitle || null,
-      driveFileId: driveFileId || null,
-      createdAt: new Date().toISOString(),
-    };
-
-    // Store with key: reminder:{reminderDate}:{random}
-    const key = `reminder:${reminderDateStr}:${Date.now()}`;
-    // Expire after due date + 1 day (in seconds)
-    const ttl = Math.max(Math.floor((due.getTime() - Date.now()) / 1000) + 86400, 86400);
-    await redisCommand('SET', [key, JSON.stringify(reminder), 'EX', String(ttl)]);
-
-    return res.status(200).json({ ok: true, reminderDate: reminderDateStr, key });
-  } catch (e) {
-    console.error('Reminder error:', e);
-    return res.status(500).json({ error: e.message });
-  }
-};
+module.exports = createHandler();
+module.exports.createHandler = createHandler;

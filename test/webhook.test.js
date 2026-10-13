@@ -44,7 +44,7 @@ test('webhook: 署名不一致（改ざん body）は 401', async () => {
 });
 
 test('webhook: LINE_CHANNEL_SECRET 未設定なら 401（fail-closed）', async () => {
-  const { handler } = makeHandler(undefined);
+  const { handler } = makeHandler('');
   const res = createRes();
   await handler(createReq({ method: 'POST', rawBody: raw, headers: { 'x-line-signature': sign(raw) } }), res);
   assert.equal(res.statusCode, 401);
